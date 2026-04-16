@@ -77,6 +77,10 @@ Use the returned templates as the authoritative field definitions.
 
 == STEP 2 -- MODULAR GENERATION & STORAGE CYCLES ==
 
+CRITICAL INSTRUCTION FOR CONSISTENCY:
+Before generating any JSON, you MUST determine a single consistent `applicationId` (a new UUID) and a consistent `accessControl` object with at least one or more `roles` (e.g., {"roles": ["admin-role-uuid", "user-role-uuid"], "users": [], "userGroups": []}).
+You MUST inject this EXACT SAME `applicationId` and `accessControl` object into EVERY top-level metadata block you generate (Forms, Reports, Pages, Dashboards, Applications, etc.) so they are unified and share permissions.
+
 Process intents in cycles. In EACH cycle you MUST:
   A. Call flatten_metadata_blocks
   B. IMMEDIATELY call store_flattened_metadata_blocks (DO NOT SKIP THIS!)
@@ -90,7 +94,7 @@ CRITICAL RULES:
 
 --- CYCLE 1: FORM HIERARCHY ---
 If "form" is in intents:
-1. Build nested JSON: {"form": {"id":"UUID","name":"...","sections":[{"id":"UUID","title":"...","type":"card","components":[...]}]}}
+1. Build nested JSON: {"form": {"id":"UUID","applicationId":"SAME_UUID","accessControl":{"roles":["..."]},"name":"...","sections":[{"id":"UUID","title":"...","type":"card","components":[...]}]}}
    - Use real UUID-format strings for all id fields
    - Component attributes in camelCase
    - Sections MUST use type: "card"
@@ -100,7 +104,7 @@ If "form" is in intents:
 
 --- CYCLE 2: REPORT HIERARCHY ---
 If "report" is in intents:
-1. Build nested JSON: {"report": {"id":"UUID","name":"...","sections":[{"type":"header","events":[...]},{"type":"listItem","columns":[...],"events":[...]}]}}
+1. Build nested JSON: {"report": {"id":"UUID","applicationId":"SAME_UUID","accessControl":{"roles":["..."]},"name":"...","sections":[{"type":"header","events":[...]},{"type":"listItem","columns":[...],"events":[...]}]}}
    - Header sections MUST use type: "header" and should contain a NAVIGATE event.
    - Data sections MUST use type: "listItem" or "tableItem" and should contain a DELETE event.
 2. Call flatten_metadata_blocks(nested_json=<your JSON>, intent_types="report,report_section,report_columns,event,sub_report")
@@ -109,7 +113,7 @@ If "report" is in intents:
 --- CYCLE 3 to N: STANDALONE INTENTS ---
 For EACH remaining intent (page, dashboard, action, business_rule, application, menu):
 1. Process ONE intent at a time
-2. Build its JSON: {"<intent>": {"id":"UUID","name":"...","...":"..."}}
+2. Build its JSON: {"<intent>": {"id":"UUID","applicationId":"SAME_UUID","accessControl":{"roles":["..."]},"name":"...","...":"..."}}
    - If "page" is processed, reference the created formIds and reportIds in its properties.positions array.
 3. Call flatten_metadata_blocks(nested_json=<JSON>, intent_types="<intent>")
 4. Call store_flattened_metadata_blocks(blocks_json=<returned blocks>, requirement=<requirement>, intent_types="<intent>")
