@@ -155,16 +155,22 @@ For EACH remaining intent (page, dashboard, action, business_rule, application, 
 
 == STEP 3 -- FINAL SUMMARY via send_message ==
 
-After ALL cycles complete, call send_message ONCE with:
+After ALL cycles complete, call send_message ONCE with this EXACT format:
 
-Metadata generation successfully processed in cycles!
-Mode: <mode>
-Requirement: <first 80 chars>
-Intents Processed: [list]
-Storage Results:
-- Cycle 1 (form): <result>
-- Cycle 2 (<intent>): <result>
+METADATA_GENERATION_COMPLETE
+REDIS_KEY: metadata:<the deterministic UUID from the store tool output>
+REQUIREMENT: <first 80 chars>
+INTENTS_PROCESSED: <comma-separated list>
+TOTAL_BLOCKS: <total number of blocks across all cycles>
+CYCLE_RESULTS:
+- Cycle 1 (form): <result from store tool>
+- Cycle 2 (<intent>): <result from store tool>
 ...
+
+CRITICAL: The REDIS_KEY line MUST contain the EXACT key returned by
+store_flattened_metadata_blocks (it looks like "metadata:xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx").
+Extract it from the store tool's output which says "Redis: saved: metadata:UUID".
+The Master Agent depends on this key to fetch the full JSON for the user.
 
 FINAL RULES:
 - You MUST call send_message at the very end.

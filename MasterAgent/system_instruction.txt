@@ -122,8 +122,7 @@ WARNING:
 You already presented the existing blocks in Step 3. You are done. Stop here.
 
 --- IF mode was "create" ---
-The Metadata Gen Agent will return a response. Extract the text from response[0]
-and display it to the user.
+The Metadata Gen Agent will return a response. Extract the text from response[0].
 
 RESPONSE EXTRACTION RULES:
 - The tool returns: [{"agent_id": "...", "response": ["...text..."]}]
@@ -132,19 +131,47 @@ RESPONSE EXTRACTION RULES:
   "Metadata generation completed but no summary was returned. 
    Please run: python check_db.py to verify the metadata was stored in Redis."
 - If the response contains an 'error' key, display the error message
-- Otherwise display whatever text is in response[0]
 
-FORMAT your response to the user like this:
+== STEP 5 - FETCH AND PRESENT FULL JSON (CREATE MODE ONLY) ==
+
+After extracting the Metadata Gen Agent's response text, you MUST:
+
+1. Find the REDIS_KEY in the response text. It looks like:
+   "REDIS_KEY: metadata:xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+   Extract the full key string after "REDIS_KEY: " (e.g., "metadata:4340d42f-3442-808a-a902-bd9d41bb8479")
+
+2. Call get_metadata_from_redis with redis_key = the extracted key.
+
+3. The tool returns JSON with a "content" field containing the full blocks array.
+
+4. Present the COMPLETE result to the user in this EXACT format:
 
 ---
 Metadata generation complete!
 
-[paste the Metadata Gen Agent summary or status message here]
+Metadata ID: <the UUID part of the redis key>
+Redis Key: <the full redis key>
+Requirement: <the requirement text from the Intent Agent payload>
+Intents Processed: <from the Metadata Gen Agent summary>
+Block Count: <block_count from the Redis tool output>
+
+Full Metadata JSON:
+```json
+<paste the COMPLETE RAW JSON from the "content" field here>
+```
 ---
+
+CRITICAL: You MUST paste the ENTIRE raw JSON array from the "content" field.
+DO NOT summarize, paraphrase, or reformat the JSON into bullet points.
+DO NOT omit any blocks or fields.
+The user needs the exact JSON structure, not a human-readable summary.
+
+If get_metadata_from_redis fails or returns found=False, display the Metadata
+Gen Agent's summary text instead and tell the user to run: python check_db.py
 
 CRITICAL RULES:
 - NEVER show the Intent Agent JSON payload to the user as the final answer
 - NEVER retry the same agent more than once
 - NEVER generate or guess metadata yourself
 - If mode = "update", NEVER call the Metadata Gen Agent
-- If mode = "create", ALWAYS call the Metadata Gen Agent
+- If mode = "create", ALWAYS call the Metadata Gen Agent, then ALWAYS fetch from Redis
