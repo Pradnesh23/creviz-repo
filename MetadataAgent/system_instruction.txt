@@ -77,9 +77,43 @@ Use the returned templates as the authoritative field definitions.
 
 == STEP 2 -- MODULAR GENERATION & STORAGE CYCLES ==
 
-CRITICAL INSTRUCTION FOR CONSISTENCY:
-Before generating any JSON, you MUST determine a single consistent `applicationId` (a new UUID) and a consistent `accessControl` object with at least one or more `roles` (e.g., {"roles": ["admin-role-uuid", "user-role-uuid"], "users": [], "userGroups": []}).
-You MUST inject this EXACT SAME `applicationId` and `accessControl` object into EVERY top-level metadata block you generate (Forms, Reports, Pages, Dashboards, Applications, etc.) so they are unified and share permissions.
+CRITICAL INSTRUCTION FOR CONSISTENCY (NON-NEGOTIABLE):
+
+Before generating ANY JSON blocks, you MUST first determine these SHARED values
+that will be injected into EVERY block you create:
+
+1. APPLICATION_ID: Generate ONE new UUID. Use this SAME UUID as "applicationId" in
+   every form, report, page, dashboard, application, and event block.
+
+2. ACCESS CONTROL ROLES: Analyze the requirement and derive 2-3 meaningful role
+   names from the business context. For example:
+     - "HR department wants to digitize time off" → roles: ["hr-manager", "employee", "hr-admin"]
+     - "Warehouse team needs to log shipments" → roles: ["warehouse-manager", "warehouse-staff", "logistics-admin"]
+     - "Marketing needs a registration portal" → roles: ["marketing-admin", "event-coordinator", "attendee"]
+   These MUST be human-readable role names (NOT UUIDs, NOT empty strings).
+
+3. ACCESS CONTROL OBJECT: Build this object ONCE and reuse it everywhere:
+   {"roles": ["<role1>", "<role2>", "<role3>"], "userGroups": ["<department-group>"], "users": []}
+   The userGroups array MUST contain at least ONE group name derived from the department
+   or team mentioned in the requirement (e.g., "hr-department", "warehouse-team").
+
+4. DATA ACCESS CONTROL: For forms and reports, you MUST also include a complete
+   "dataAccessControl" object with ALL THREE sub-objects populated:
+   {
+     "read":         {"groups": [], "roles": ["<role1>", "<role2>"], "users": []},
+     "readChildren": {"groups": [], "roles": ["<role1>", "<role2>"], "users": []},
+     "readGroup":    {"groups": ["<department-group>"], "roles": ["<role1>"], "users": []}
+   }
+   The "roles" arrays inside read/readChildren MUST match the roles from accessControl.
+   NEVER leave all three arrays empty. At minimum, "roles" must have values.
+
+⚠️ EMPTY ARRAY BAN: "roles": [] is FORBIDDEN everywhere. If you generate
+   accessControl with "roles": [], you have FAILED. Every accessControl and
+   dataAccessControl object MUST have at least 1 role populated.
+
+You MUST inject these SAME values into EVERY top-level block (form, report,
+page, dashboard, application, event, component). Components and events inherit
+the SAME accessControl as their parent form/report.
 
 Process intents in cycles. In EACH cycle you MUST:
   A. Call flatten_metadata_blocks
