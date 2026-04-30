@@ -1,10 +1,20 @@
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 :root {
     --bg-base: #0f172a;
     --bg-panel: rgba(30, 41, 59, 0.7);
     --primary: #38bdf8;
     --text-main: #f8fafc;
+    --success: #22c55e;
+    --success-bg: rgba(34, 197, 94, 0.1);
+    --success-border: rgba(34, 197, 94, 0.3);
+    --error: #ef4444;
+    --error-bg: rgba(239, 68, 68, 0.08);
+    --error-border: rgba(239, 68, 68, 0.3);
+    --warning: #f59e0b;
+    --warning-bg: rgba(245, 158, 11, 0.1);
+    --warning-border: rgba(245, 158, 11, 0.3);
 }
 
 body {
@@ -44,18 +54,20 @@ body {
     border: 1px solid rgba(255,255,255,0.1);
     border-radius: 8px;
     padding: 20px;
-    margin-bottom: 24px;
+    margin-bottom: 16px;
     display: flex;
-    gap: 16px;
+    gap: 12px;
+    align-items: center;
 }
 
 select, input, button {
     font-family: inherit;
     padding: 10px;
-    border-radius: 4px;
+    border-radius: 6px;
     border: 1px solid rgba(255,255,255,0.2);
     background: rgba(0,0,0,0.5);
     color: white;
+    font-size: 13px;
 }
 
 button {
@@ -63,6 +75,173 @@ button {
     color: black;
     font-weight: bold;
     cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+button:hover {
+    filter: brightness(1.15);
+    transform: translateY(-1px);
+}
+
+button:active {
+    transform: translateY(0);
+}
+
+#copy-btn {
+    background-color: #059669;
+}
+
+/* ── Validation Banner ── */
+.validation-banner {
+    border-radius: 8px;
+    padding: 14px 20px;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    animation: slideDown 0.3s ease;
+}
+
+@keyframes slideDown {
+    from { opacity: 0; transform: translateY(-8px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.validation-banner.valid {
+    background: var(--success-bg);
+    border: 1px solid var(--success-border);
+    color: var(--success);
+}
+
+.validation-banner.invalid {
+    background: var(--error-bg);
+    border: 1px solid var(--error-border);
+    color: var(--error);
+}
+
+.validation-banner .icon {
+    font-size: 20px;
+    flex-shrink: 0;
+}
+
+.validation-banner .banner-content {
+    flex: 1;
+}
+
+.validation-banner .banner-subtitle {
+    font-weight: 400;
+    font-size: 12px;
+    opacity: 0.8;
+    margin-top: 2px;
+}
+
+/* ── Validation Errors Panel ── */
+.validation-errors {
+    background: var(--error-bg);
+    border: 1px solid var(--error-border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-bottom: 12px;
+    max-height: 300px;
+    overflow-y: auto;
+    animation: slideDown 0.3s ease;
+}
+
+.validation-errors .error-header {
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--error);
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.validation-errors .error-toggle {
+    cursor: pointer;
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 4px;
+    background: rgba(239, 68, 68, 0.2);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    color: var(--error);
+    font-weight: 500;
+}
+
+.validation-errors .error-toggle:hover {
+    background: rgba(239, 68, 68, 0.3);
+}
+
+.validation-errors .error-item {
+    font-size: 12px;
+    line-height: 1.6;
+    color: #fca5a5;
+    padding: 6px 10px;
+    margin-bottom: 4px;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 4px;
+    border-left: 3px solid var(--error);
+    word-break: break-word;
+}
+
+.validation-errors .error-item .error-type {
+    color: var(--error);
+    font-weight: 600;
+}
+
+.validation-errors .error-item .error-field {
+    color: #fde047;
+}
+
+/* ── Block Stats ── */
+.block-stats {
+    background: var(--bg-panel);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px;
+    padding: 12px 20px;
+    margin-bottom: 16px;
+    display: flex;
+    gap: 16px;
+    align-items: center;
+    flex-wrap: wrap;
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    animation: slideDown 0.3s ease;
+}
+
+.block-stats .stat {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.block-stats .stat-label {
+    color: #94a3b8;
+}
+
+.block-stats .stat-value {
+    color: var(--primary);
+    font-weight: 600;
+}
+
+.block-stats .stat-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.block-stats .stat-badge.intent {
+    background: rgba(56, 189, 248, 0.15);
+    border: 1px solid rgba(56, 189, 248, 0.3);
+    color: var(--primary);
+    margin-right: 4px;
 }
 
 .tree-container {
@@ -117,4 +296,19 @@ button {
 
 .json-item {
     display: block;
+}
+
+/* ── Scrollbar ── */
+.validation-errors::-webkit-scrollbar,
+.tree-container::-webkit-scrollbar {
+    width: 6px;
+}
+.validation-errors::-webkit-scrollbar-track,
+.tree-container::-webkit-scrollbar-track {
+    background: transparent;
+}
+.validation-errors::-webkit-scrollbar-thumb,
+.tree-container::-webkit-scrollbar-thumb {
+    background: rgba(255,255,255,0.15);
+    border-radius: 3px;
 }

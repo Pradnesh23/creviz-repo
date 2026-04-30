@@ -21,51 +21,196 @@ document.getElementById('key-select').addEventListener('change', e => {
 
 let currentJsonData = null;
 
+// ── UI helpers ───────────────────────────────────────────────
+function hidePanels() {
+    document.getElementById('validation-banner').style.display = 'none';
+    document.getElementById('validation-errors').style.display = 'none';
+    document.getElementById('block-stats').style.display = 'none';
+    document.getElementById('copy-btn').style.display = 'none';
+}
+
+function showValidBanner(blockCount) {
+    const banner = document.getElementById('validation-banner');
+    banner.className = 'validation-banner valid';
+    banner.style.display = 'flex';
+    banner.innerHTML = `
+        <span class="icon">✅</span>
+        <div class="banner-content">
+            <div>Schema Validation Passed</div>
+            <div class="banner-subtitle">All ${blockCount} blocks comply with Creviz production schema</div>
+        </div>
+    `;
+}
+
+function showInvalidBanner(errorCount, blockCount) {
+    const banner = document.getElementById('validation-banner');
+    banner.className = 'validation-banner invalid';
+    banner.style.display = 'flex';
+    banner.innerHTML = `
+        <span class="icon">❌</span>
+        <div class="banner-content">
+            <div>Schema Validation Failed — ${errorCount} error${errorCount > 1 ? 's' : ''}</div>
+            <div class="banner-subtitle">${blockCount} blocks checked against Creviz production schema</div>
+        </div>
+    `;
+}
+
+function showValidationErrors(errors) {
+    const panel = document.getElementById('validation-errors');
+    panel.style.display = 'block';
+
+    const errorItems = errors.map(err => {
+        // Parse: [type] (id: xxx) - Field 'path': message
+        const match = err.match(/^\[(\w+)\]\s*\(id:\s*([^)]+)\)\s*-\s*Field\s*'([^']*)':\s*(.+)$/);
+        if (match) {
+            return `<div class="error-item">
+                <span class="error-type">${match[1]}</span>
+                <span style="color:#94a3b8"> (${match[2]})</span> →
+                <span class="error-field">${match[3] || 'root'}</span>:
+                ${escHtml(match[4])}
+            </div>`;
+        }
+        return `<div class="error-item">${escHtml(err)}</div>`;
+    }).join('');
+
+    panel.innerHTML = `
+        <div class="error-header">
+            <span>🔍 Validation Errors (${errors.length})</span>
+            <span class="error-toggle" onclick="toggleErrors()">Collapse</span>
+        </div>
+        <div id="error-list">${errorItems}</div>
+    `;
+}
+
+let errorsCollapsed = false;
+function toggleErrors() {
+    errorsCollapsed = !errorsCollapsed;
+    const list = document.getElementById('error-list');
+    const toggle = document.querySelector('.error-toggle');
+    if (errorsCollapsed) {
+        list.style.display = 'none';
+        toggle.textContent = 'Expand';
+    } else {
+        list.style.display = 'block';
+        toggle.textContent = 'Collapse';
+    }
+}
+
+function showBlockStats(data, blockCount) {
+    const statsEl = document.getElementById('block-stats');
+
+    // If we have raw blocks (validation failed path), extract types from the raw data
+    // If we have nested content, extract types from the tree
+    let types = [];
+    if (Array.isArray(data)) {
+        const typeCounts = {};
+        data.forEach(b => {
+            const t = b.type || 'unknown';
+            typeCounts[t] = (typeCounts[t] || 0) + 1;
+        });
+        types = Object.entries(typeCounts);
+    }
+
+    let badges = types.map(([t, c]) =>
+        `<span class="stat-badge intent">${t} × ${c}</span>`
+    ).join('');
+
+    statsEl.style.display = 'flex';
+    statsEl.innerHTML = `
+        <div class="stat">
+            <span class="stat-label">Blocks:</span>
+            <span class="stat-value">${blockCount}</span>
+        </div>
+        <div class="stat">
+            <span class="stat-label">Intents:</span>
+            ${badges || '<span class="stat-value">—</span>'}
+        </div>
+    `;
+}
+
 // ── Fetch & render ──────────────────────────────────────────
 async function fetchMetadata() {
     const key = document.getElementById('manual-key').value.trim();
     if (!key) return;
+
+    hidePanels();
+    errorsCollapsed = false;
     document.getElementById('tree-root').innerHTML =
-        '<div style="color:#fff">Loading…</div>';
-    document.getElementById('copy-btn').style.display = 'none';
+        '<div style="color:#fff;text-align:center;padding:40px;">Loading…</div>';
 
     try {
         const res  = await fetch('/api/metadata/' + encodeURIComponent(key));
         const json = await res.json();
+
         if (!json.found) {
             document.getElementById('tree-root').innerHTML =
-                `<div style="color:red">Error: ${json.message}</div>`;
+                `<div style="color:red;text-align:center;padding:40px;">Error: ${json.message}</div>`;
             return;
         }
 
+        const blockCount = json.flat_block_count || '?';
+
+        // ── Validation FAILED ──
+        if (json.valid === false && json.validation_errors) {
+            showInvalidBanner(json.validation_errors.length, blockCount);
+            showValidationErrors(json.validation_errors);
+
+            // Still fetch raw blocks to show stats
+            try {
+                const rawRes = await fetch('/api/metadata-raw/' + encodeURIComponent(key));
+                const rawJson = await rawRes.json();
+                if (rawJson.found && Array.isArray(rawJson.content)) {
+                    showBlockStats(rawJson.content, blockCount);
+                }
+            } catch (e) { /* ignore */ }
+
+            document.getElementById('tree-root').innerHTML =
+                '<div style="color:#94a3b8;text-align:center;padding:40px;">Fix validation errors above to view nested structure</div>';
+            return;
+        }
+
+        // ── Validation PASSED ──
+        showValidBanner(blockCount);
+
+        // Fetch raw blocks for stats
+        try {
+            const rawRes = await fetch('/api/metadata-raw/' + encodeURIComponent(key));
+            const rawJson = await rawRes.json();
+            if (rawJson.found && Array.isArray(rawJson.content)) {
+                showBlockStats(rawJson.content, blockCount);
+            }
+        } catch (e) { /* ignore */ }
+
         const nested = nestJsonData(json.content);
-        currentJsonData = json.content; // Save the raw/reassembled JSON for copying
+        currentJsonData = json.content;
         document.getElementById('copy-btn').style.display = 'inline-block';
         document.getElementById('copy-btn').textContent = 'Copy JSON';
 
         document.getElementById('tree-root').innerHTML = renderJSON(nested, true);
-
-        // wire up all collapse toggles
-        document.querySelectorAll('.json-toggle').forEach(el => {
-            el.addEventListener('click', function (e) {
-                e.stopPropagation();
-                this.classList.toggle('collapsed');
-                let sib = this.nextElementSibling;
-                while (sib) {
-                    if (sib.classList.contains('json-dict') ||
-                        sib.classList.contains('json-array')) {
-                        sib.classList.toggle('collapsed-content');
-                        break;
-                    }
-                    sib = sib.nextElementSibling;
-                }
-            });
-        });
+        wireToggles();
 
     } catch (e) {
         document.getElementById('tree-root').innerHTML =
-            '<div style="color:red">Error loading data</div>';
+            '<div style="color:red;text-align:center;padding:40px;">Error loading data</div>';
     }
+}
+
+function wireToggles() {
+    document.querySelectorAll('.json-toggle').forEach(el => {
+        el.addEventListener('click', function (e) {
+            e.stopPropagation();
+            this.classList.toggle('collapsed');
+            let sib = this.nextElementSibling;
+            while (sib) {
+                if (sib.classList.contains('json-dict') ||
+                    sib.classList.contains('json-array')) {
+                    sib.classList.toggle('collapsed-content');
+                    break;
+                }
+                sib = sib.nextElementSibling;
+            }
+        });
+    });
 }
 
 async function copyMetadata() {
@@ -154,7 +299,6 @@ function renderJSON(data, isLast = true) {
         const keys = Object.keys(data);
         if (!keys.length) return `{}${comma}`;
 
-        // build a human-readable collapsed preview
         const parts = [];
         if (data.type) parts.push(data.type.toUpperCase());
         if (keys.includes('pages')) parts.push('Metadata Payload');
@@ -181,3 +325,4 @@ function renderJSON(data, isLast = true) {
 }
 
 function esc(s) { return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"'); }
+function escHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }

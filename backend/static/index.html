@@ -19,9 +19,18 @@
                 <option value="">Select a Redis Key...</option>
             </select>
             <input type="text" id="manual-key" placeholder="metadata:..." style="flex: 1;">
-            <button onclick="fetchMetadata()">Load Metadata</button>
-            <button onclick="copyMetadata()" id="copy-btn" style="display: none; background-color: #059669;">Copy JSON</button>
+            <button onclick="fetchMetadata()" id="load-btn">Load Metadata</button>
+            <button onclick="copyMetadata()" id="copy-btn" style="display: none;">Copy JSON</button>
         </div>
+
+        <!-- Validation Status Banner -->
+        <div id="validation-banner" class="validation-banner" style="display: none;"></div>
+
+        <!-- Validation Errors Panel -->
+        <div id="validation-errors" class="validation-errors" style="display: none;"></div>
+
+        <!-- Block Stats -->
+        <div id="block-stats" class="block-stats" style="display: none;"></div>
 
         <div class="tree-container" id="tree-root">
             <div style="color: #94a3b8; text-align: center; padding: 40px;">No data loaded</div>
