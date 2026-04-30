@@ -1,0 +1,120 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root {
+    --bg-base: #0f172a;
+    --bg-panel: rgba(30, 41, 59, 0.7);
+    --primary: #38bdf8;
+    --text-main: #f8fafc;
+}
+
+body {
+    margin: 0;
+    padding: 0;
+    font-family: 'JetBrains Mono', monospace;
+    background-color: var(--bg-base);
+    color: var(--text-main);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.header {
+    padding: 20px 40px;
+    background: rgba(15, 23, 42, 0.8);
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-family: 'Inter', sans-serif;
+}
+
+.header h1 {
+    margin: 0;
+    font-size: 1.5rem;
+    color: #38bdf8;
+}
+
+.container {
+    flex: 1;
+    padding: 40px;
+}
+
+.control-panel {
+    background: var(--bg-panel);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 24px;
+    display: flex;
+    gap: 16px;
+}
+
+select, input, button {
+    font-family: inherit;
+    padding: 10px;
+    border-radius: 4px;
+    border: 1px solid rgba(255,255,255,0.2);
+    background: rgba(0,0,0,0.5);
+    color: white;
+}
+
+button {
+    background: var(--primary);
+    color: black;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.tree-container {
+    background: #000;
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px;
+    padding: 20px;
+    overflow-x: auto;
+    font-size: 14px;
+    line-height: 1.6;
+}
+
+/* ── JSON Viewer colours ── */
+.json-key     { color: #7dd3fc; }
+.json-string  { color: #a7f3d0; }
+.json-number  { color: #fde047; }
+.json-boolean { color: #f87171; }
+.json-null    { color: #94a3b8; }
+
+.json-dict, .json-array {
+    margin-left: 24px;
+    border-left: 1px dashed rgba(255,255,255,0.15);
+    padding-left: 8px;
+}
+
+.json-toggle {
+    cursor: pointer;
+    color: #94a3b8;
+    margin-right: 5px;
+    display: inline-block;
+    width: 12px;
+    user-select: none;
+}
+
+.json-toggle:before           { content: '▼'; font-size: 10px; }
+.json-toggle.collapsed:before { content: '▶'; }
+
+.collapsed-content { display: none !important; }
+
+.json-collapsed-preview {
+    display: none;
+    color: #64748b;
+    font-style: italic;
+    margin-left: 8px;
+    pointer-events: none;
+    user-select: none;
+}
+
+.json-toggle.collapsed ~ .json-collapsed-preview {
+    display: inline;
+}
+
+.json-item {
+    display: block;
+}

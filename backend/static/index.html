@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Creviz Metadata Viewer</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+    <div class="header">
+        <h1>Creviz Metadata Viewer</h1>
+        <div style="font-size: 0.9rem; color: #94a3b8;">JSON Tree View</div>
+    </div>
+
+    <div class="container">
+        <div class="control-panel">
+            <select id="key-select">
+                <option value="">Select a Redis Key...</option>
+            </select>
+            <input type="text" id="manual-key" placeholder="metadata:..." style="flex: 1;">
+            <button onclick="fetchMetadata()">Load Metadata</button>
+            <button onclick="copyMetadata()" id="copy-btn" style="display: none; background-color: #059669;">Copy JSON</button>
+        </div>
+
+        <div class="tree-container" id="tree-root">
+            <div style="color: #94a3b8; text-align: center; padding: 40px;">No data loaded</div>
+        </div>
+    </div>
+
+    <script src="/viewer.js"></script>
+</body>
+</html>
