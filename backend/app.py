@@ -11,6 +11,8 @@ import json
 import os
 import logging
 from flask import Flask, jsonify, request, send_from_directory
+from jsonschema import Draft202012Validator
+from jsonschema.exceptions import ValidationError
 
 try:
     import redis as redis_lib
@@ -30,6 +32,75 @@ def _get_redis():
     if redis_lib is None:
         raise RuntimeError("redis package not installed — pip install redis")
     return redis_lib.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
+
+
+# ── Validation Helper ─────────────────────────────────────────
+
+SCHEMA_DIR = r"c:\Users\prads\OneDrive\Desktop\creviz\letta\schemas"
+SCHEMA_MAP = {
+    "application": "Application.json",
+    "page": "Page.json",
+    "form": "Form.json",
+    "dashboard": "Dashboard.json",
+    "report": "Report.json",
+    "business_rule": "BusinessRule.json",
+    "action": "Action.json",
+    "component": "component.json",
+    "section": "section.json",
+    "event": "Event.json",
+    "menu": "Menu.json",
+    "report_columns": "Report-Columns.json"
+}
+
+def remove_refs(obj):
+    if isinstance(obj, dict):
+        obj.pop("$ref", None)
+        for k, v in list(obj.items()):
+            remove_refs(v)
+    elif isinstance(obj, list):
+        for item in obj:
+            remove_refs(item)
+    return obj
+
+_schema_cache = {}
+def get_schema_validator(block_type):
+    schema_file = SCHEMA_MAP.get(block_type)
+    if not schema_file:
+        return None
+        
+    if schema_file not in _schema_cache:
+        path = os.path.join(SCHEMA_DIR, schema_file)
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                schema = json.load(f)
+                schema = remove_refs(schema)
+                _schema_cache[schema_file] = Draft202012Validator(schema)
+        else:
+            _schema_cache[schema_file] = None
+            
+    return _schema_cache[schema_file]
+
+def validate_blocks(blocks):
+    """
+    Validates a list of flat blocks against their JSON schemas.
+    Returns (True, None) if all valid, or (False, error_details) if invalid.
+    """
+    errors = []
+    for block in blocks:
+        b_type = block.get("type")
+        b_data = block.get("data", {})
+        b_id = b_data.get("id", "unknown")
+        
+        validator = get_schema_validator(b_type)
+        if validator:
+            block_errors = sorted(validator.iter_errors(b_data), key=lambda e: e.path)
+            for err in block_errors:
+                path_str = ".".join(str(p) for p in err.path)
+                errors.append(f"[{b_type}] (id: {b_id}) - Field '{path_str}': {err.message}")
+    
+    if errors:
+        return False, errors
+    return True, None
 
 
 # ── Reassembly: flat blocks → nested hierarchy ───────────────
@@ -408,9 +479,20 @@ def get_metadata(key):
 
         # If data is a flat list of {type, data} blocks, reassemble
         if isinstance(data, list) and data and isinstance(data[0], dict) and "type" in data[0]:
+            is_valid, validation_errors = validate_blocks(data)
+            if not is_valid:
+                return jsonify({
+                    "found": True,
+                    "valid": False,
+                    "error": "Schema validation failed",
+                    "validation_errors": validation_errors,
+                    "flat_block_count": len(data)
+                }), 400
+
             nested = reassemble(data)
             return jsonify({
                 "found": True,
+                "valid": True,
                 "content": nested,
                 "flat_block_count": len(data)
             })
