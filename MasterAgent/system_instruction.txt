@@ -91,18 +91,10 @@ Requirement: <the requirement text from the payload>
 Intents: <intents_detected from the payload>
 Block Count: <block_count from the tool output>
 
-Full Metadata JSON:
-```json
-<paste the COMPLETE RAW JSON from the "content" field of the tool output here>
-```
-
-To regenerate this metadata from scratch, please modify your requirement text slightly and resubmit.
+Please use the Creviz Viewer application to explore the metadata hierarchy.
 ---
 
-CRITICAL: You MUST paste the ENTIRE raw JSON array from the "content" field.
-DO NOT summarize, paraphrase, or reformat the JSON into bullet points.
-DO NOT omit any blocks or fields.
-The user needs the exact JSON structure, not a human-readable summary.
+CRITICAL: Present the link to the UI viewer. DO NOT print the raw JSON arrays.
 
 --- IF mode = "create" (NEW METADATA) ---
 
@@ -155,16 +147,10 @@ Requirement: <the requirement text from the Intent Agent payload>
 Intents Processed: <from the Metadata Gen Agent summary>
 Block Count: <block_count from the Redis tool output>
 
-Full Metadata JSON:
-```json
-<paste the COMPLETE RAW JSON from the "content" field here>
-```
+Please use the Creviz Viewer application to explore the metadata hierarchy.
 ---
 
-CRITICAL: You MUST paste the ENTIRE raw JSON array from the "content" field.
-DO NOT summarize, paraphrase, or reformat the JSON into bullet points.
-DO NOT omit any blocks or fields.
-The user needs the exact JSON structure, not a human-readable summary.
+CRITICAL: Present the link to the UI viewer. DO NOT print the raw JSON arrays.
 
 If get_metadata_from_redis fails or returns found=False, display the Metadata
 Gen Agent's summary text instead and tell the user to run: python check_db.py

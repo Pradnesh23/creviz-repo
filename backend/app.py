@@ -37,12 +37,15 @@ def _get_redis():
 # ── Validation Helper ─────────────────────────────────────────
 
 SCHEMA_DIR = r"c:\Users\prads\OneDrive\Desktop\creviz\letta\schemas"
+
+# Map block types to schemas.
+# Report.json expects {root,sections} (assembled) — use Report-Root for flat blocks.
 SCHEMA_MAP = {
     "application": "Application.json",
     "page": "Page.json",
     "form": "Form.json",
     "dashboard": "Dashboard.json",
-    "report": "Report.json",
+    "report": "Report-Root.json",
     "business_rule": "BusinessRule.json",
     "action": "Action.json",
     "component": "component.json",
@@ -50,6 +53,15 @@ SCHEMA_MAP = {
     "event": "Event.json",
     "menu": "Menu.json",
     "report_columns": "Report-Columns.json"
+}
+
+# Schemas whose root type is "array" — flat blocks are single objects
+ARRAY_ROOT_SCHEMAS = {"event", "report_columns"}
+
+# Fields that only exist AFTER reassembly — skip from required
+ASSEMBLY_ONLY_FIELDS = {
+    "page": {"forms", "reports", "dashboard"},
+    "form": {"sections"},
 }
 
 def remove_refs(obj):
@@ -63,26 +75,44 @@ def remove_refs(obj):
     return obj
 
 _schema_cache = {}
-def get_schema_validator(block_type):
+def get_flat_block_validator(block_type):
+    """Returns a JSON schema validator adapted for flat blocks."""
+    cache_key = f"flat_{block_type}"
+    if cache_key in _schema_cache:
+        return _schema_cache[cache_key]
+
     schema_file = SCHEMA_MAP.get(block_type)
     if not schema_file:
+        _schema_cache[cache_key] = None
         return None
-        
-    if schema_file not in _schema_cache:
-        path = os.path.join(SCHEMA_DIR, schema_file)
-        if os.path.exists(path):
-            with open(path, "r", encoding="utf-8") as f:
-                schema = json.load(f)
-                schema = remove_refs(schema)
-                _schema_cache[schema_file] = Draft202012Validator(schema)
-        else:
-            _schema_cache[schema_file] = None
-            
-    return _schema_cache[schema_file]
+
+    path = os.path.join(SCHEMA_DIR, schema_file)
+    if not os.path.exists(path):
+        _schema_cache[cache_key] = None
+        return None
+
+    with open(path, "r", encoding="utf-8") as f:
+        schema = json.load(f)
+        schema = remove_refs(schema)
+
+    # For array-root schemas, extract items schema to validate single objects
+    if block_type in ARRAY_ROOT_SCHEMAS and schema.get("type") == "array":
+        items_schema = schema.get("items", {})
+        if items_schema:
+            schema = items_schema
+
+    # Remove assembly-only fields from required list
+    skip_fields = ASSEMBLY_ONLY_FIELDS.get(block_type, set())
+    if skip_fields and "required" in schema:
+        schema["required"] = [f for f in schema["required"] if f not in skip_fields]
+
+    validator = Draft202012Validator(schema)
+    _schema_cache[cache_key] = validator
+    return validator
 
 def validate_blocks(blocks):
     """
-    Validates a list of flat blocks against their JSON schemas.
+    Validates flat blocks against their JSON schemas.
     Returns (True, None) if all valid, or (False, error_details) if invalid.
     """
     errors = []
@@ -90,14 +120,14 @@ def validate_blocks(blocks):
         b_type = block.get("type")
         b_data = block.get("data", {})
         b_id = b_data.get("id", "unknown")
-        
-        validator = get_schema_validator(b_type)
+
+        validator = get_flat_block_validator(b_type)
         if validator:
             block_errors = sorted(validator.iter_errors(b_data), key=lambda e: e.path)
             for err in block_errors:
-                path_str = ".".join(str(p) for p in err.path)
+                path_str = ".".join(str(p) for p in err.path) or "root"
                 errors.append(f"[{b_type}] (id: {b_id}) - Field '{path_str}': {err.message}")
-    
+
     if errors:
         return False, errors
     return True, None

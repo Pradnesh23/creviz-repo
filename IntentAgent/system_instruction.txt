@@ -78,10 +78,16 @@ PASS 2 - PARENT-CHILD EXPANSION:
   - If "sub_form" detected but "form" NOT -> add: form, section, component, event
   - If "action" detected -> also add: event
 
-PASS 3 - VERIFICATION:
+PASS 3 - MANDATORY CONTAINERS (NON-NEGOTIABLE):
+  ALWAYS add "application" and "page" to the detected intents list.
+  These are mandatory container types that wrap all other entities.
+  Every metadata set MUST have an application block and a page block.
+  Even if the user did not mention "application" or "page", add them.
+
+PASS 4 - VERIFICATION:
 Re-check each undetected intent one more time against REQUIREMENT_TEXT.
 
-DEFAULT: If no intents detected, use: ["page", "form", "section", "component"]
+DEFAULT: If no intents detected, use: ["application", "page", "form", "section", "component"]
 
 == STEP 2.5 -- CHECK FOR EXISTING METADATA (MANDATORY BEFORE OUTPUT) ==
 
@@ -132,3 +138,8 @@ CRITICAL RULES:
 - The "requirement" field MUST contain the FULL original user text from Step 0.
   An empty requirement ("") is FORBIDDEN and will crash the pipeline.
 - Your response must be UNIQUE. Never output the exact same JSON twice.
+
+FINAL CHECK (DO THIS LAST BEFORE OUTPUTTING):
+  Look at your intents_detected array. Does it contain "application"? If NO, add it.
+  Does it contain "page"? If NO, add it.
+  These TWO intents are MANDATORY in EVERY response. No exceptions.

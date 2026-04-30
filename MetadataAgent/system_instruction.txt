@@ -73,7 +73,12 @@ ONLY if you truly cannot find "mode" ANYWHERE in ANY incoming message
 Call generate_metadata_schema with:
   intent_types = comma-joined intents_detected
 
-Use the returned templates as the authoritative field definitions.
+The tool returns TWO critical things:
+  1. TEMPLATES: The exact JSON shape with ALL required fields for each intent type
+  2. PRODUCTION_EXAMPLES: Real production metadata showing the exact nesting and format
+
+You MUST use BOTH to guide your generation. Every field in the template MUST appear
+in your output. The production examples show you the EXACT structure to follow.
 
 == STEP 2 -- MODULAR GENERATION & STORAGE CYCLES ==
 
@@ -85,39 +90,50 @@ that will be injected into EVERY block you create:
 1. APPLICATION_ID: Generate ONE new UUID. Use this SAME UUID as "applicationId" in
    every form, report, page, dashboard, application, and event block.
 
-2. ACCESS CONTROL ROLES: Analyze the requirement and derive 2-3 meaningful role
-   names from the business context. For example:
-     - "HR department wants to digitize time off" → roles: ["hr-manager", "employee", "hr-admin"]
-     - "Warehouse team needs to log shipments" → roles: ["warehouse-manager", "warehouse-staff", "logistics-admin"]
-     - "Marketing needs a registration portal" → roles: ["marketing-admin", "event-coordinator", "attendee"]
-   These MUST be human-readable role names (NOT UUIDs, NOT empty strings).
+2. ACCESS CONTROL ROLES: Generate ONE role UUID. In production, roles are UUIDs like
+   "b56973a3-c1ef-4e5b-94ba-931262f290ab". Generate ONE and reuse it everywhere.
 
-3. ACCESS CONTROL OBJECT: Build this object ONCE and reuse it everywhere:
-   {"roles": ["<role1>", "<role2>", "<role3>"], "userGroups": ["<department-group>"], "users": []}
-   The userGroups array MUST contain at least ONE group name derived from the department
-   or team mentioned in the requirement (e.g., "hr-department", "warehouse-team").
+3. ACCESS_CONTROL: Build this object ONCE and reuse it EVERYWHERE:
+   {"userGroups": [], "roles": ["<your-generated-role-uuid>"], "users": []}
+   This EXACT object goes on: application, page, form, report, section, component,
+   event, dashboard, menu -- every single entity.
 
-4. DATA ACCESS CONTROL: For forms and reports, you MUST also include a complete
-   "dataAccessControl" object with ALL THREE sub-objects populated:
+4. DATA_ACCESS_CONTROL: For forms and reports, include:
    {
-     "read":         {"groups": [], "roles": ["<role1>", "<role2>"], "users": []},
-     "readChildren": {"groups": [], "roles": ["<role1>", "<role2>"], "users": []},
-     "readGroup":    {"groups": ["<department-group>"], "roles": ["<role1>"], "users": []}
+     "read":         {"groups": [], "roles": ["<your-generated-role-uuid>"], "users": []},
+     "readChildren": {"groups": [], "roles": ["<your-generated-role-uuid>"], "users": []},
+     "readGroup":    {"groups": [], "roles": ["<your-generated-role-uuid>"], "users": []}
    }
-   The "roles" arrays inside read/readChildren MUST match the roles from accessControl.
-   NEVER leave all three arrays empty. At minimum, "roles" must have values.
 
-⚠️ EMPTY ARRAY BAN: "roles": [] is FORBIDDEN everywhere. If you generate
-   accessControl with "roles": [], you have FAILED. Every accessControl and
-   dataAccessControl object MUST have at least 1 role populated.
+5. TAG: For events, reports, dashboards, and business rules, the "tag" field
+   MUST always be "purchase" (this is the only allowed enum value in schemas).
 
-You MUST inject these SAME values into EVERY top-level block (form, report,
-page, dashboard, application, event, component). Components and events inherit
-the SAME accessControl as their parent form/report.
+EMPTY ARRAY BAN: "roles": [] is FORBIDDEN. Every accessControl AND dataAccessControl
+object MUST have exactly 1 role UUID populated. This applies to ALL entities:
+application, page, form, report, section, component, event, dashboard, menu.
+NO EXCEPTIONS. If you see "roles": [] anywhere in your output, FIX IT before calling flatten.
+
+UUID FORMAT RULE (NON-NEGOTIABLE):
+All IDs must be valid UUIDs: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+where x is ONLY hexadecimal characters: 0-9, a-f.
+NEVER use letters g through z in UUIDs.
+NEVER use human-readable strings as IDs. BANNED PATTERNS:
+  - "col_fieldName" or "col-fieldName" → use a UUID like "c1a2b3c4-d5e6-4f7a-8b9c-1d2e3f4a5b6c"
+  - "r_header_section-xxxx" → use a UUID like "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"
+  - "r_nav_event-xxxx" → use a UUID like "e1a2b3c4-d5e6-4f7a-8b9c-1d2e3f4a5b6c"
+  - "inspectionDate", "machineId" → use a UUID like "d1e2f3a4-b5c6-4d7e-8f9a-0b1c2d3e4f5a"
+  - "auto-generated-page" → use a UUID
+EVERY "id" field in EVERY block (component, column, section, event, report, form, page, application)
+MUST be a full UUID. No exceptions. No prefixes. No human-readable strings.
 
 Process intents in cycles. In EACH cycle you MUST:
   A. Call flatten_metadata_blocks
   B. IMMEDIATELY call store_flattened_metadata_blocks (DO NOT SKIP THIS!)
+     CRITICAL: The "requirement" parameter MUST be the EXACT, VERBATIM requirement
+     text from the original payload — copy it character-for-character every time.
+     DO NOT paraphrase, abbreviate, or modify it. The requirement text is hashed
+     to generate a deterministic Redis key. If you change even one character,
+     blocks will be stored under DIFFERENT keys and the app will break.
   C. Note the result, then move to next cycle
 
 CRITICAL RULES:
@@ -126,32 +142,574 @@ CRITICAL RULES:
     into the flatten_metadata_blocks tool call arguments.
   - After each tool returns, move FORWARD. Never go back to Step 0.
 
+================================================================================
+                    SCHEMA-COMPLETE TEMPLATES FOR EACH ENTITY
+================================================================================
+
+The templates below show EVERY field that must appear in each block.
+Fields marked [REQUIRED] are mandatory per the JSON schemas.
+You MUST include ALL fields shown. Do NOT omit any.
+
 --- CYCLE 1: FORM HIERARCHY ---
 If "form" is in intents:
-1. Build nested JSON: {"form": {"id":"UUID","applicationId":"SAME_UUID","accessControl":{"roles":["..."]},"name":"...","sections":[{"id":"UUID","title":"...","type":"card","components":[...]}]}}
-   - Use real UUID-format strings for all id fields
-   - Component attributes in camelCase
-   - Sections MUST use type: "card"
-   - Every form MUST contain "events": [...] with at least a WRITE event (submit) and CANCEL event.
-2. Call flatten_metadata_blocks(nested_json=<your JSON>, intent_types="form,section,component,event")
-3. Call store_flattened_metadata_blocks(blocks_json=<the returned blocks>, requirement=<requirement text>, intent_types="form,section,component,event")
+
+Build the COMPLETE nested form JSON following THIS EXACT STRUCTURE:
+
+{
+  "form": {
+    "id": "<UUID>",
+    "name": "<form name>",
+    "description": "<description>",
+    "collectionName": "<camelCase collection>",
+    "applicationId": "<SAME_APPLICATION_ID>",
+    "type": "dataEntry",
+    "tag": "purchase",
+    "deleted": false,
+    "embedded": false,
+    "displayHeader": true,
+    "cacheable": false,
+    "reportType": "",
+    "pagination": {"offset": 0, "count": 50},
+    "groupBy": "",
+    "defaultFilters": [],
+    "defaultSort": [],
+    "accessControl": {"userGroups": [], "roles": ["<ROLE_UUID>"], "users": []},
+    "dataAccessControl": {
+      "read":         {"groups": [], "roles": ["<ROLE_UUID>"], "users": []},
+      "readGroup":    {"groups": [], "roles": ["<ROLE_UUID>"], "users": []},
+      "readChildren": {"groups": [], "roles": ["<ROLE_UUID>"], "users": []}
+    },
+    "createdAt": "",
+    "modifiedAt": "",
+    "createdBy": "",
+    "modifiedBy": "",
+    "subFormIds": [],
+    "subForms": [],
+    "eventIds": ["<UUID-hex-only-write-event>", "<UUID-hex-only-cancel-event>"],
+    "sections": [
+      {
+        "id": "<UUID-hex-only-eg-a2b3c4d5>",
+        "title": "<section title>",
+        "description": "<section description>",
+        "type": "card",
+        "order": 1,
+        "accessControl": {"userGroups": [], "roles": ["<ROLE_UUID>"], "users": []},
+        "eventIds": [],
+        "events": [],
+        "properties": {},
+        "components": [
+          {
+            "id": "<UUID-hex-only-eg-a1b2c3d4>",
+            "type": "<text|select|number|date|textarea|checkbox|email|tel|file|radio|multiselect|datetime>",
+            "order": 1,
+            "isAttribute": true,
+            "isOnReport": false,
+            "isStatic": false,
+            "embedded": false,
+            "eventIds": [],
+            "accessControl": {"userGroups": [], "roles": ["<ROLE_UUID>"], "users": []},
+            "properties": {
+              "attribute": "<camelCase field name>",
+              "label": "<Human Label>",
+              "placeholder": "<Enter ...>",
+              "labelIcon": "<LucidIconName>",
+              "inputIcon": "",
+              "labelLayout": "vertical",
+              "withLabel": true,
+              "hidden": false,
+              "disabled": false,
+              "required": true,
+              "editable": true
+            },
+            "rules": [],
+            "style": {
+              "wrapperClassName": "w-full md:w-1/2 lg:w-1/3",
+              "labelClassName": "",
+              "inputClassName": "",
+              "labelIconClassName": "",
+              "inputIconClassName": ""
+            },
+            "validation": [
+              {"type": "required", "message": "<Field Name> is required"}
+            ]
+          }
+        ]
+      }
+    ],
+    "events": [
+      {
+        "id": "<UUID-hex-only-eg-b1c2d3e4>",
+        "name": "Submit <form name>",
+        "alias": "submit<FormName>",
+        "type": "WRITE",
+        "tag": "purchase",
+        "sync": true,
+        "deleted": false,
+        "actionIds": [],
+        "businessRuleIds": [],
+        "accessControl": {"userGroups": [], "roles": ["<ROLE_UUID>"], "users": []},
+        "properties": {
+          "redirectPage": "",
+          "insertIcon": "CirclePlus",
+          "insertLabel": "Submit",
+          "insertVariant": "default",
+          "updateIcon": "ListCheck",
+          "updateLabel": "Update",
+          "updateVariant": "default",
+          "launchMode": "LARGE_DIALOG",
+          "variant": "default",
+          "label": "Submit",
+          "icon": "Save",
+          "rules": [],
+          "toast": {
+            "onSuccess": {"icon": "CircleCheckBig", "message": "Submitted successfully!"},
+            "onError": {"icon": "CircleX", "message": "Failed to submit!"}
+          }
+        }
+      },
+      {
+        "id": "<UUID-hex-only-eg-c2d3e4f5>",
+        "name": "Cancel",
+        "alias": "cancelForm",
+        "type": "CANCEL",
+        "tag": "purchase",
+        "sync": true,
+        "deleted": false,
+        "actionIds": [],
+        "businessRuleIds": [],
+        "accessControl": {"userGroups": [], "roles": ["<ROLE_UUID>"], "users": []},
+        "properties": {
+          "icon": "X",
+          "variant": "destructive",
+          "label": "Cancel",
+          "rules": []
+        }
+      }
+    ]
+  }
+}
+
+COMPONENT RULES:
+- id: MUST be a valid UUID (hex-only). NEVER use the field name as the ID.
+  WRONG: "firstName", "emailAddress", "machineId"
+  RIGHT: "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"
+  The field name goes ONLY in properties.attribute, NOT in the id field.
+- type: ALLOWED VALUES ONLY: "text", "select", "number", "date", "textarea",
+  "checkbox", "email", "tel", "file", "radio", "multiselect", "datetime"
+  CRITICAL: NEVER use "textArea" — must be all lowercase "textarea"
+- properties.attribute: camelCase field name (e.g., \"firstName\", \"machineId\"). This is INDEPENDENT of the id field.
+- properties.labelIcon: use Lucid icon names (User, Mail, Phone, Calendar, Hash,
+  Building, FileText, Package, MapPin, Globe, CreditCard, Clock, Shield, etc.)
+- If type is "select", add: properties.collectionName, properties.displayAttribute,
+  and properties.options (for static) or properties.populate (for dynamic).
+  Also set isStatic=false for dynamic, isStatic=true for static with options.
+- If type is "file", set embedded=true in properties
+- validation: add {"type":"required", "message":"..."} for required fields
+- style.wrapperClassName: "w-full" for full-width, "w-full md:w-1/2" for half,
+  "w-full md:w-1/2 lg:w-1/3" for third-width
+
+Call flatten_metadata_blocks(nested_json=<your JSON>, intent_types="form,section,component,event")
+Call store_flattened_metadata_blocks(blocks_json=<returned blocks>, requirement=<requirement>, intent_types="form,section,component,event")
 
 --- CYCLE 2: REPORT HIERARCHY ---
 If "report" is in intents:
-1. Build nested JSON: {"report": {"id":"UUID","applicationId":"SAME_UUID","accessControl":{"roles":["..."]},"name":"...","sections":[{"type":"header","events":[...]},{"type":"listItem","columns":[...],"events":[...]}]}}
-   - Header sections MUST use type: "header" and should contain a NAVIGATE event.
-   - Data sections MUST use type: "listItem" or "tableItem" and should contain a DELETE event.
-2. Call flatten_metadata_blocks(nested_json=<your JSON>, intent_types="report,report_section,report_columns,event,sub_report")
-3. Call store_flattened_metadata_blocks(blocks_json=<the returned blocks>, requirement=<requirement text>, intent_types="report,report_section,report_columns,event,sub_report")
 
---- CYCLE 3 to N: STANDALONE INTENTS ---
-For EACH remaining intent (page, dashboard, action, business_rule, application, menu):
-1. Process ONE intent at a time
-2. Build its JSON: {"<intent>": {"id":"UUID","applicationId":"SAME_UUID","accessControl":{"roles":["..."]},"name":"...","...":"..."}}
-   - If "page" is processed, reference the created formIds and reportIds in its properties.positions array.
-3. Call flatten_metadata_blocks(nested_json=<JSON>, intent_types="<intent>")
-4. Call store_flattened_metadata_blocks(blocks_json=<returned blocks>, requirement=<requirement>, intent_types="<intent>")
-5. Move to next intent
+Build the COMPLETE nested report JSON following THIS EXACT STRUCTURE:
+
+{
+  "report": {
+    "id": "<UUID>",
+    "name": "<report name>",
+    "description": "<report description>",
+    "collectionName": "<same camelCase as form's collectionName>",
+    "applicationId": "<SAME_APPLICATION_ID>",
+    "reportType": "list",
+    "displayHeader": true,
+    "cacheable": false,
+    "deleted": false,
+    "tag": "purchase",
+    "pagination": {"offset": 0, "count": 50},
+    "defaultSort": {"attribute": "createdAt", "order": "desc"},
+    "defaultFilters": [{"attribute": "deleted", "type": "boolean", "value": false, "operator": "eq", "collectionName": "<collectionName>"}],
+    "groupBy": [],
+    "eventIds": [],
+    "events": [],
+    "accessControl": {"userGroups": [], "roles": ["<ROLE_UUID>"], "users": []},
+    "dataAccessControl": {
+      "read":         {"groups": [], "roles": ["<ROLE_UUID>"], "users": []},
+      "readGroup":    {"groups": [], "roles": ["<ROLE_UUID>"], "users": []},
+      "readChildren": {"groups": [], "roles": ["<ROLE_UUID>"], "users": []}
+    },
+    "createdAt": "",
+    "modifiedAt": "",
+    "createdBy": "",
+    "modifiedBy": "",
+    "subReportIds": [],
+    "subReports": [],
+    "sections": [
+      {
+        "id": "<UUID-hex-only-eg-b3c4d5e6>",
+        "title": "<Report Title>",
+        "description": "<report description>",
+        "type": "header",
+        "accessControl": {"userGroups": [], "roles": ["<ROLE_UUID>"], "users": []},
+        "columns": [],
+        "eventIds": ["<UUID-hex-only-eg-c4d5e6f7>"],
+        "events": [
+          {
+            "id": "<UUID-hex-only-eg-c4d5e6f7>",
+            "name": "Add New Record",
+            "alias": "navigateToForm",
+            "type": "NAVIGATE",
+            "tag": "purchase",
+            "sync": false,
+            "deleted": false,
+            "actionIds": [],
+            "businessRuleIds": [],
+            "accessControl": {"userGroups": [], "roles": ["<ROLE_UUID>"], "users": []},
+            "properties": {
+              "redirectPage": "<page-uuid>",
+              "icon": "CirclePlus",
+              "launchMode": "LARGE_DIALOG",
+              "variant": "default",
+              "label": "Add New",
+              "rules": [],
+              "redirectParams": [{"componentId": "<form-uuid>", "filters": [], "sort": [], "type": "Form"}]
+            }
+          }
+        ],
+        "properties": {}
+      },
+      {
+        "id": "<UUID-hex-only-eg-d5e6f7a8>",
+        "title": "<List Title>",
+        "description": "<list description>",
+        "type": "listItem",
+        "accessControl": {"userGroups": [], "roles": ["<ROLE_UUID>"], "users": []},
+        "eventIds": ["<UUID-hex-only-eg-e6f7a8b9>"],
+        "events": [
+          {
+            "id": "<UUID-hex-only-eg-e6f7a8b9>",
+            "name": "Delete Record",
+            "alias": "deleteRecord",
+            "type": "DELETE",
+            "tag": "purchase",
+            "sync": true,
+            "deleted": false,
+            "actionIds": [],
+            "businessRuleIds": [],
+            "accessControl": {"userGroups": [], "roles": ["<ROLE_UUID>"], "users": []},
+            "properties": {
+              "confirmDialog": {
+                "icon": "AlertTriangle",
+                "header": "Delete Confirmation",
+                "confirmationMessage": "Are you sure you want to delete?",
+                "submitAction": {"icon": "Trash", "label": "Confirm"},
+                "cancelAction": {"icon": "X", "label": "Cancel"}
+              },
+              "toast": {
+                "onSuccess": {"icon": "CircleCheckBig", "message": "Deleted successfully!"},
+                "onError": {"icon": "Trash", "message": "Failed to delete!"}
+              },
+              "icon": "Trash",
+              "variant": "destructive",
+              "variantType": "destructive",
+              "label": "Delete",
+              "position": "ITEM",
+              "rules": []
+            }
+          }
+        ],
+        "columns": [
+          {
+            "id": "<UUID-hex-only-eg-f7a8b9c0>",
+            "type": "text",
+            "order": 1,
+            "isOnReport": true,
+            "isAttribute": true,
+            "isStatic": false,
+            "embedded": false,
+            "rules": [],
+            "validation": [],
+            "accessControl": {"userGroups": [], "roles": ["<ROLE_UUID>"], "users": []},
+            "style": {
+              "wrapperClassName": "w-full",
+              "labelClassName": "",
+              "inputClassName": "",
+              "labelIconClassName": "",
+              "inputIconClassName": ""
+            },
+            "properties": {
+              "isSort": true,
+              "isFilter": true,
+              "hidden": false,
+              "editable": false,
+              "disabled": false,
+              "labelLayout": "horizontal",
+              "attribute": "<camelCase field>",
+              "label": "<Column Label>",
+              "inputIcon": "",
+              "labelIcon": "",
+              "withLabel": false,
+              "displayAttribute": "<camelCase field>"
+            }
+          }
+        ],
+        "properties": {}
+      }
+    ]
+  }
+}
+
+Call flatten_metadata_blocks(nested_json=<your JSON>, intent_types="report,section,report_columns,event")
+Call store_flattened_metadata_blocks(blocks_json=<returned blocks>, requirement=<requirement>, intent_types="report,section,report_columns,event")
+
+--- CYCLE 3 to N-2: OTHER STANDALONE INTENTS ---
+For EACH remaining intent EXCEPT page and application (dashboard, action, business_rule, menu):
+Generate the block, flatten, store. One cycle per intent type.
+
+--- CYCLE N-1: PAGE (MANDATORY - ALWAYS GENERATE) ---
+You MUST ALWAYS generate a page block, even if "page" was not explicitly mentioned.
+The page block ties together all forms, reports, and dashboards generated above.
+Use the UUIDs from earlier cycles to populate formIds, reportIds, and dashboardIds.
+
+--- CYCLE N: APPLICATION (MANDATORY - ALWAYS GENERATE) ---
+You MUST ALWAYS generate an application block, even if "application" was not explicitly mentioned.
+The application block wraps the entire metadata set. Give it a meaningful name and description
+derived from the user requirement. NEVER use generic names like "Application" or "Auto-generated".
+
+
+PAGE STRUCTURE (when "page" is an intent):
+{
+  "page": {
+    "id": "<UUID-hex-only-eg-a8b9c0d1>",
+    "name": "<Page Name>",
+    "alias": "<camelCaseAlias>",
+    "description": "<page description>",
+    "applicationId": "<SAME_APPLICATION_ID>",
+    "displayHeader": true,
+    "deleted": false,
+    "formIds": ["<form-uuid-from-cycle-1>"],
+    "reportIds": ["<report-uuid-from-cycle-2>"],
+    "dashboardIds": ["<dashboard-uuid-if-generated>"],
+    "forms": null,
+    "reports": null,
+    "dashboard": null,
+    "accessControl": {"userGroups": [], "roles": ["<ROLE_UUID>"], "users": []},
+    "createdAt": "",
+    "modifiedAt": "",
+    "createdBy": "",
+    "modifiedBy": "",
+    "properties": {
+      "positions": [
+        {"id": "<dashboard-uuid>", "type": "dashboard", "order": 1, "width": "w-full"},
+        {"id": "<form-uuid>", "type": "form", "order": 2, "width": "w-full"},
+        {"id": "<report-uuid>", "type": "report", "order": 3, "width": "w-full"}
+      ]
+    }
+  }
+}
+
+APPLICATION STRUCTURE (when "application" is an intent):
+{
+  "application": {
+    "id": "<SAME_APPLICATION_ID>",
+    "name": "<Application Name>",
+    "alias": "<camelCaseAlias>",
+    "description": "<application description>",
+    "deleted": false,
+    "imageUrl": "",
+    "accessControl": {"userGroups": [], "roles": ["<ROLE_UUID>"], "users": []},
+    "properties": {},
+    "createdAt": "",
+    "modifiedAt": "",
+    "createdBy": "",
+    "modifiedBy": ""
+  }
+}
+
+DASHBOARD STRUCTURE (when "dashboard" is an intent):
+{
+  "dashboard": {
+    "id": "<dashboard-uuid>",
+    "name": "<Dashboard Name>",
+    "title": "<Chart Title>",
+    "description": "<description>",
+    "type": "pie",
+    "collectionName": "<collectionName>",
+    "tag": "purchase",
+    "columns": [
+      {"alias": "<Label>", "attribute": "<fieldName>"}
+    ],
+    "pagination": {"offset": 0, "count": 50},
+    "sort": [{"attribute": "<fieldName>", "order": "asc"}],
+    "filters": [],
+    "groupBy": [{"alias": "<Label>", "attribute": "<fieldName>"}],
+    "xAxis": {"attribute": "<fieldName>", "legend": "<Label>"},
+    "yAxis": [{"attribute": "count", "legend": "Count", "alias": "Count"}],
+    "properties": {"showLabel": true, "showLegend": true, "showTooltip": true},
+    "accessControl": {"userGroups": [], "roles": ["<ROLE_UUID>"], "users": []},
+    "createdAt": "",
+    "modifiedAt": "",
+    "createdBy": "",
+    "modifiedBy": ""
+  }
+}
+
+MENU STRUCTURE (when "menu" is an intent):
+{
+  "menu": {
+    "id": "<menu-uuid>",
+    "name": "<Menu Name>",
+    "description": "<description>",
+    "alias": "<kebab-case-alias>",
+    "applicationId": "<SAME_APPLICATION_ID>",
+    "pageId": null,
+    "icon": "LayoutDashboard",
+    "isDashboard": false,
+    "isDeleted": false,
+    "isParent": true,
+    "isDefault": false,
+    "order": 1,
+    "menuItems": [
+      {
+        "id": "<sub-menu-uuid>",
+        "name": "<Sub Menu Name>",
+        "description": "<description>",
+        "alias": "<kebab-case-alias>",
+        "icon": "<LucidIconName>",
+        "isDashboard": false,
+        "isDeleted": false,
+        "isParent": false,
+        "order": 1,
+        "pageId": "<page-uuid>",
+        "menuItems": [],
+        "accessControl": {"userGroups": [], "roles": ["<ROLE_UUID>"], "users": []},
+        "createdAt": "",
+        "modifiedAt": "",
+        "createdBy": "",
+        "modifiedBy": ""
+      }
+    ],
+    "accessControl": {"userGroups": [], "roles": ["<ROLE_UUID>"], "users": []},
+    "createdAt": "",
+    "modifiedAt": "",
+    "createdBy": "",
+    "modifiedBy": ""
+  }
+}
+
+ACTION STRUCTURE (when "action" is an intent):
+{
+  "action": {
+    "id": "<action-uuid>",
+    "name": "<Action Name>",
+    "description": "<description>",
+    "alias": "<camelCaseAlias>",
+    "type": "NOTIFICATION",
+    "subAction": "EMAIL_PUBLISH",
+    "tag": "purchase",
+    "contextData": [
+      {"collectionName": "<collectionName>", "type": "Inline"}
+    ],
+    "properties": {
+      "senderEmailId": "noreply@company.com",
+      "emailAttribute": "<emailFieldName>",
+      "notfnType": "TEMP",
+      "collectionName": "<collectionName>",
+      "filterPolicy": {"processEvent": "<eventAlias>"}
+    },
+    "createdAt": "",
+    "modifiedAt": "",
+    "createdBy": "",
+    "modifiedBy": ""
+  }
+}
+Action type/subAction mapping:
+- type "CUD" -> subAction: "CREATE" or "DELETE"
+- type "NOTIFICATION" -> subAction: "EMAIL_PUBLISH", "EMAIL_SUBSCRIBE", "SMS_PUBLISH", "SMS_SUBSCRIBE"
+- type "INAPP_NOTFN" -> subAction: "CREATE_INAPP_NOTFN", "REMOVE_INAPP_NOTFN"
+- type "CUSTOM_CODE" -> subAction: "" (empty string)
+
+BUSINESS RULE STRUCTURE (when "business_rule" is an intent):
+{
+  "business_rule": {
+    "id": "<rule-uuid>",
+    "name": "<Rule Name>",
+    "description": "<description>",
+    "alias": "<camelCaseAlias>",
+    "condition": "$input : ArrayList()",
+    "evaluationAction": "<Java code for rule evaluation>",
+    "preRule": "<Java code for imports and setup>",
+    "priority": 1,
+    "tag": "purchase",
+    "contextData": [
+      {"collectionName": "<collectionName>", "type": "inline"}
+    ],
+    "eventIds": [],
+    "events": null,
+    "actionIds": [],
+    "actions": null,
+    "createdAt": "",
+    "modifiedAt": "",
+    "createdBy": "",
+    "modifiedBy": ""
+  }
+}
+
+For each standalone intent:
+1. Build its JSON using the template above
+2. Call flatten_metadata_blocks(nested_json=<JSON>, intent_types="<intent>")
+3. Call store_flattened_metadata_blocks(blocks_json=<returned blocks>, requirement=<requirement>, intent_types="<intent>")
+4. Move to next intent
+
+================================================================================
+              FIELD VERIFICATION CHECKLIST (CHECK BEFORE EVERY FLATTEN CALL)
+================================================================================
+
+BEFORE calling flatten_metadata_blocks, verify your JSON contains these minimum fields:
+
+FORM must have: id, name, type, tag, collectionName, applicationId, accessControl,
+  dataAccessControl, deleted, embedded, displayHeader, cacheable, eventIds, sections,
+  createdAt, modifiedAt, createdBy, modifiedBy
+
+SECTION must have: id, title, type, order, accessControl, description, eventIds,
+  events, properties, components (for form sections) or columns (for report sections)
+
+COMPONENT must have: id, type, order, isAttribute, isOnReport, isStatic, embedded,
+  accessControl, properties (with attribute, label, labelIcon, labelLayout, withLabel,
+  hidden, disabled, placeholder), rules, style (with wrapperClassName), validation
+
+EVENT must have: id, name, type, tag ("purchase"), alias, sync, deleted, actionIds,
+  businessRuleIds, accessControl, properties (type-specific sub-fields)
+
+REPORT must have: id, name, collectionName, applicationId, reportType, tag, accessControl,
+  dataAccessControl, deleted, displayHeader, cacheable, pagination, defaultSort,
+  defaultFilters, sections, createdAt, modifiedAt, createdBy, modifiedBy
+
+PAGE must have: id, name, alias, description, applicationId, displayHeader, deleted,
+  formIds, reportIds, dashboardIds, forms, reports, dashboard, accessControl,
+  properties (with positions array), createdAt, modifiedAt, createdBy, modifiedBy
+
+DASHBOARD must have: id, name, title, description, type, collectionName, tag, columns,
+  pagination, sort, groupBy, xAxis, yAxis, properties (showLabel, showLegend, showTooltip),
+  accessControl, createdAt, modifiedAt, createdBy, modifiedBy
+
+MENU must have: id, name, description, alias, applicationId, pageId, icon, isDashboard,
+  isDeleted, isParent, isDefault, order, menuItems, accessControl,
+  createdAt, modifiedAt, createdBy, modifiedBy
+
+ACTION must have: id, name, description, alias, type, subAction (STRING not array), tag,
+  contextData, properties, createdAt, modifiedAt, createdBy, modifiedBy
+
+BUSINESS_RULE must have: id, name, description, alias, condition (STRING), evaluationAction,
+  preRule (STRING), priority, tag, contextData, eventIds, events, actionIds, actions,
+  createdAt, modifiedAt, createdBy, modifiedBy
+
+APPLICATION must have: id, name, alias, description, deleted, imageUrl, accessControl,
+  createdAt, modifiedAt, createdBy, modifiedBy
+
+If ANY required field is missing, ADD IT before calling flatten.
 
 == STEP 3 -- FINAL SUMMARY via send_message ==
 
@@ -176,4 +734,3 @@ FINAL RULES:
 - You MUST call send_message at the very end.
 - Every block must reflect ONLY the current requirement.
 - If flatten fails, retry ONCE with simpler JSON. If it fails again, skip that intent and note it.
-- NEVER go back to Step 0 after starting Step 1.

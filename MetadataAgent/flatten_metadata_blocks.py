@@ -3,7 +3,7 @@ def flatten_metadata_blocks(nested_json: str, intent_types: str) -> str:
     """
     Takes a complete nested metadata JSON string and breaks it into flat blocks.
     Handles forms (sections->components), reports (sections->columns),
-    subForms, subReports, and inline events.
+    subForms, subReports, inline events, and application->pages->reports hierarchy.
 
     Args:
         nested_json: A JSON string of the complete metadata object.
@@ -54,9 +54,7 @@ def flatten_metadata_blocks(nested_json: str, intent_types: str) -> str:
         "validation", "sub_form", "sub_report"
     ]
 
-    # -- Processing queue: (action, payload) tuples --
-    # Instead of nested def calls, we use a work queue processed iteratively.
-    # Actions: "sections", "events", "sub_forms", "sub_reports", "extract_top"
+    # -- Work queue for iterative processing --
     work_queue = []
 
     # -- Step 1: Extract clearly keyed top-level intents --
@@ -109,27 +107,55 @@ def flatten_metadata_blocks(nested_json: str, intent_types: str) -> str:
         root_id = str(uuid.uuid4())
 
     # -- Step 4: Process blocks for nested children --
-    for b in list(blocks):
+    # Use a multi-pass approach: keep processing until no new blocks are added
+    processed_ids = set()
+
+    def _process_block(b):
+        """Process a single block, extracting nested children into work_queue."""
         bt = b["type"]
         bd = b["data"]
+        block_key = bt + ":" + str(bd.get("id", ""))
+        if block_key in processed_ids:
+            return
+        processed_ids.add(block_key)
         r_id = bd.get("id", root_id)
 
-        if bt in ("form", "sub_form"):
+        if bt == "application":
+            # Extract pages[] from application
+            inline_pages = bd.pop("pages", None)
+            if inline_pages and isinstance(inline_pages, list):
+                for pg in inline_pages:
+                    if isinstance(pg, dict):
+                        if "id" not in pg:
+                            pg["id"] = str(uuid.uuid4())
+                        blocks.append({"type": "page", "data": pg})
+            # Extract dashboards[] from application
+            inline_dashboards = bd.pop("dashboards", None)
+            if inline_dashboards and isinstance(inline_dashboards, list):
+                for db in inline_dashboards:
+                    if isinstance(db, dict):
+                        if "id" not in db:
+                            db["id"] = str(uuid.uuid4())
+                        blocks.append({"type": "dashboard", "data": db})
+            # Extract menus[] from application
+            inline_menus = bd.pop("menus", None)
+            if inline_menus and isinstance(inline_menus, list):
+                for mn in inline_menus:
+                    if isinstance(mn, dict):
+                        if "id" not in mn:
+                            mn["id"] = str(uuid.uuid4())
+                        blocks.append({"type": "menu", "data": mn})
+
+        elif bt in ("form", "sub_form"):
             s = bd.pop("sections", top_sections if bt == "form" else None)
             if s:
                 work_queue.append(("sections", s, r_id, bt))
-                if bt == "form":
-                    top_sections = None
             e = bd.pop("events", top_events if bt == "form" else None)
             if e and isinstance(e, list):
                 work_queue.append(("events_list", e, r_id, "formId"))
-                if bt == "form":
-                    top_events = None
-            sf = bd.pop("subForms", top_sub_forms if bt == "form" else None)
+            sf = bd.pop("subForms", None)
             if sf:
                 work_queue.append(("sub_forms", sf, r_id))
-                if bt == "form":
-                    top_sub_forms = None
 
         elif bt in ("report", "sub_report"):
             s = bd.pop("sections", None)
@@ -138,23 +164,40 @@ def flatten_metadata_blocks(nested_json: str, intent_types: str) -> str:
             e = bd.pop("events", None)
             if e and isinstance(e, list):
                 work_queue.append(("events_list", e, r_id, "reportId"))
-            sr = bd.pop("subReports", top_sub_reports if bt == "report" else None)
+            sr = bd.pop("subReports", None)
             if sr:
                 work_queue.append(("sub_reports", sr, r_id))
-                if bt == "report":
-                    top_sub_reports = None
 
         elif bt == "page":
+            # Extract inline reports
             inline_reports = bd.pop("reports", None)
             if inline_reports and isinstance(inline_reports, list):
                 for rpt in inline_reports:
                     if isinstance(rpt, dict) and "id" in rpt:
                         blocks.append({"type": "report", "data": rpt})
+                # Set reports to null on the page block (schema expects null or UUID array)
+                bd["reports"] = None
+            # Extract inline forms
             inline_forms = bd.pop("forms", None)
             if inline_forms and isinstance(inline_forms, list):
                 for frm in inline_forms:
                     if isinstance(frm, dict) and "id" in frm:
                         blocks.append({"type": "form", "data": frm})
+                bd["forms"] = None
+            # Extract inline dashboards
+            inline_dashboards = bd.pop("dashboards", None)
+            if inline_dashboards and isinstance(inline_dashboards, list):
+                for db in inline_dashboards:
+                    if isinstance(db, dict) and "id" in db:
+                        blocks.append({"type": "dashboard", "data": db})
+
+    # Multi-pass: keep processing until all blocks are handled
+    while True:
+        unprocessed = [b for b in blocks if (b["type"] + ":" + str(b["data"].get("id", ""))) not in processed_ids]
+        if not unprocessed:
+            break
+        for b in unprocessed:
+            _process_block(b)
 
     # Handle remaining top-level data
     if top_sections:
