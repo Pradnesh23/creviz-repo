@@ -36,6 +36,8 @@ def _get_redis():
 
 # ── Validation Helper ─────────────────────────────────────────
 
+import re
+
 SCHEMA_DIR = r"c:\Users\prads\OneDrive\Desktop\creviz\letta\schemas"
 
 # Map block types to schemas.
@@ -63,6 +65,26 @@ ASSEMBLY_ONLY_FIELDS = {
     "page": {"forms", "reports", "dashboard"},
     "form": {"sections"},
 }
+
+# Strict hex-only UUID: 8-4-4-4-12, only [0-9a-f]
+UUID_REGEX = re.compile(
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+    re.IGNORECASE
+)
+
+# Known block types that MUST have an "id" field
+BLOCK_TYPES_WITH_ID = {
+    "application", "page", "form", "report", "dashboard",
+    "event", "section", "component", "report_columns",
+    "business_rule", "action", "menu"
+}
+
+# Block types that MUST have accessControl with at least one role
+AC_REQUIRED_TYPES = {
+    "application", "page", "form", "report", "dashboard",
+    "event", "section", "component", "report_columns"
+}
+
 
 def remove_refs(obj):
     if isinstance(obj, dict):
@@ -110,11 +132,10 @@ def get_flat_block_validator(block_type):
     _schema_cache[cache_key] = validator
     return validator
 
-def validate_blocks(blocks):
-    """
-    Validates flat blocks against their JSON schemas.
-    Returns (True, None) if all valid, or (False, error_details) if invalid.
-    """
+
+# ── Layer 1: JSON Schema Validation ──────────────────────────
+def _validate_schema(blocks):
+    """Validates each flat block against its JSON schema."""
     errors = []
     for block in blocks:
         b_type = block.get("type")
@@ -126,10 +147,173 @@ def validate_blocks(blocks):
             block_errors = sorted(validator.iter_errors(b_data), key=lambda e: e.path)
             for err in block_errors:
                 path_str = ".".join(str(p) for p in err.path) or "root"
-                errors.append(f"[{b_type}] (id: {b_id}) - Field '{path_str}': {err.message}")
+                errors.append(f"[SCHEMA] [{b_type}] (id: {b_id}) - Field '{path_str}': {err.message}")
+    return errors
 
-    if errors:
-        return False, errors
+
+# ── Layer 2: UUID Format Enforcement ─────────────────────────
+def _validate_uuids(blocks):
+    """Ensures all 'id' fields and ID references are valid hex-only UUIDs."""
+    errors = []
+    for block in blocks:
+        b_type = block.get("type", "unknown")
+        b_data = block.get("data", {})
+        b_id = b_data.get("id", "unknown")
+
+        # Check primary "id"
+        if b_type in BLOCK_TYPES_WITH_ID:
+            raw_id = b_data.get("id")
+            if not raw_id:
+                errors.append(f"[UUID] [{b_type}] - Missing 'id' field entirely")
+            elif not UUID_REGEX.match(str(raw_id)):
+                errors.append(f"[UUID] [{b_type}] (id: {raw_id}) - Invalid UUID format (must be hex-only 8-4-4-4-12)")
+
+        # Check applicationId
+        app_id = b_data.get("applicationId")
+        if app_id and not UUID_REGEX.match(str(app_id)):
+            errors.append(f"[UUID] [{b_type}] (id: {b_id}) - Invalid applicationId '{app_id}'")
+
+        # Check all *Ids arrays (formIds, reportIds, eventIds, etc.)
+        for key, val in b_data.items():
+            if key.endswith("Ids") and isinstance(val, list):
+                for i, ref_id in enumerate(val):
+                    if ref_id and not UUID_REGEX.match(str(ref_id)):
+                        errors.append(f"[UUID] [{b_type}] (id: {b_id}) - Invalid UUID in {key}[{i}]: '{ref_id}'")
+
+        # Check accessControl role UUIDs
+        ac = b_data.get("accessControl", {})
+        if isinstance(ac, dict):
+            for role_id in ac.get("roles", []):
+                if role_id and not UUID_REGEX.match(str(role_id)):
+                    errors.append(f"[UUID] [{b_type}] (id: {b_id}) - Invalid role UUID: '{role_id}'")
+
+    return errors
+
+
+# ── Layer 3: AccessControl Enforcement ───────────────────────
+def _validate_access_control(blocks):
+    """Ensures accessControl.roles is never empty on entities that need it."""
+    errors = []
+    for block in blocks:
+        b_type = block.get("type", "unknown")
+        b_data = block.get("data", {})
+        b_id = b_data.get("id", "unknown")
+
+        if b_type not in AC_REQUIRED_TYPES:
+            continue
+
+        ac = b_data.get("accessControl")
+        if not ac or not isinstance(ac, dict):
+            errors.append(f"[ACCESS] [{b_type}] (id: {b_id}) - Missing 'accessControl' object")
+            continue
+
+        roles = ac.get("roles", [])
+        if not isinstance(roles, list) or len(roles) == 0:
+            errors.append(f"[ACCESS] [{b_type}] (id: {b_id}) - 'accessControl.roles' is empty (MUST have >= 1 role UUID)")
+
+    return errors
+
+
+# ── Layer 4: Cross-Reference Integrity ───────────────────────
+def _validate_cross_references(blocks):
+    """Ensures all ID references point to blocks that actually exist."""
+    errors = []
+
+    # Build a set of all known block IDs
+    all_ids = set()
+    for block in blocks:
+        b_data = block.get("data", {})
+        bid = b_data.get("id")
+        if bid:
+            all_ids.add(str(bid))
+
+    # Check references
+    for block in blocks:
+        b_type = block.get("type", "unknown")
+        b_data = block.get("data", {})
+        b_id = b_data.get("id", "unknown")
+
+        # Check formId, pageId, sectionId, reportId (single FK references)
+        for fk_field in ["formId", "pageId", "sectionId", "reportId"]:
+            ref = b_data.get(fk_field)
+            if ref and str(ref) not in all_ids:
+                errors.append(f"[XREF] [{b_type}] (id: {b_id}) - '{fk_field}' references '{ref}' which does not exist in any block")
+
+        # Check *Ids arrays (formIds, reportIds, dashboardIds, eventIds)
+        for key, val in b_data.items():
+            if key.endswith("Ids") and isinstance(val, list):
+                # Skip businessRuleIds and actionIds — they reference external entities
+                if key in ("businessRuleIds", "actionIds"):
+                    continue
+                for ref_id in val:
+                    if ref_id and str(ref_id) not in all_ids:
+                        errors.append(f"[XREF] [{b_type}] (id: {b_id}) - '{key}' references '{ref_id}' which does not exist in any block")
+
+    return errors
+
+
+# ── Layer 5: Structural Consistency ──────────────────────────
+def _validate_structural(blocks):
+    """Checks high-level structural rules across all blocks."""
+    errors = []
+
+    # Collect applicationIds — they should all be the same
+    app_ids = set()
+    block_types_seen = set()
+
+    for block in blocks:
+        b_type = block.get("type", "unknown")
+        b_data = block.get("data", {})
+        block_types_seen.add(b_type)
+
+        aid = b_data.get("applicationId")
+        if aid:
+            app_ids.add(str(aid))
+
+    # Rule: All blocks must share the same applicationId
+    if len(app_ids) > 1:
+        errors.append(f"[STRUCT] Multiple applicationId values found: {app_ids} — all blocks must share ONE applicationId")
+
+    # Rule: Must have at least one application block
+    if "application" not in block_types_seen:
+        errors.append("[STRUCT] No 'application' block found — every metadata set must include one")
+
+    # Rule: Must have at least one page block
+    if "page" not in block_types_seen:
+        errors.append("[STRUCT] No 'page' block found — every metadata set must include one")
+
+    # Rule: If form exists, events should exist (submit + cancel)
+    if "form" in block_types_seen and "event" not in block_types_seen:
+        errors.append("[STRUCT] 'form' block found but no 'event' blocks — forms require at least Submit and Cancel events")
+
+    return errors
+
+
+# ── Master Validation Orchestrator ───────────────────────────
+def validate_blocks(blocks):
+    """
+    Runs ALL validation layers on flat blocks.
+    Returns (True, None) if all valid, or (False, error_details) if invalid.
+    """
+    all_errors = []
+
+    # Layer 1: JSON Schema
+    all_errors.extend(_validate_schema(blocks))
+
+    # Layer 2: UUID format (hex-only)
+    all_errors.extend(_validate_uuids(blocks))
+
+    # Layer 3: AccessControl roles not empty
+    all_errors.extend(_validate_access_control(blocks))
+
+    # Layer 4: Cross-reference integrity
+    all_errors.extend(_validate_cross_references(blocks))
+
+    # Layer 5: Structural consistency
+    all_errors.extend(_validate_structural(blocks))
+
+    if all_errors:
+        return False, all_errors
     return True, None
 
 

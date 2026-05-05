@@ -59,23 +59,55 @@ function showValidationErrors(errors) {
     const panel = document.getElementById('validation-errors');
     panel.style.display = 'block';
 
+    // Layer color map
+    const layerColors = {
+        'SCHEMA': '#ef4444',
+        'UUID':   '#f59e0b',
+        'ACCESS': '#f97316',
+        'XREF':   '#8b5cf6',
+        'STRUCT': '#ec4899',
+    };
+
     const errorItems = errors.map(err => {
-        // Parse: [type] (id: xxx) - Field 'path': message
-        const match = err.match(/^\[(\w+)\]\s*\(id:\s*([^)]+)\)\s*-\s*Field\s*'([^']*)':\s*(.+)$/);
+        // Parse: [LAYER] [type] (id: xxx) - message
+        const match = err.match(/^\[(\w+)\]\s*\[(\w+)\]\s*\(id:\s*([^)]+)\)\s*-\s*(.+)$/);
         if (match) {
-            return `<div class="error-item">
-                <span class="error-type">${match[1]}</span>
-                <span style="color:#94a3b8"> (${match[2]})</span> →
-                <span class="error-field">${match[3] || 'root'}</span>:
+            const layer = match[1];
+            const color = layerColors[layer] || '#ef4444';
+            return `<div class="error-item" style="border-left-color:${color}">
+                <span style="color:${color};font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:0.5px">${layer}</span>
+                <span class="error-type">${match[2]}</span>
+                <span style="color:#94a3b8"> (${match[3]})</span> —
                 ${escHtml(match[4])}
+            </div>`;
+        }
+        // Fallback: [LAYER] message (STRUCT errors without id)
+        const structMatch = err.match(/^\[(\w+)\]\s*(.+)$/);
+        if (structMatch) {
+            const layer = structMatch[1];
+            const color = layerColors[layer] || '#ef4444';
+            return `<div class="error-item" style="border-left-color:${color}">
+                <span style="color:${color};font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:0.5px">${layer}</span>
+                ${escHtml(structMatch[2])}
             </div>`;
         }
         return `<div class="error-item">${escHtml(err)}</div>`;
     }).join('');
 
+    // Count by layer
+    const layerCounts = {};
+    errors.forEach(e => {
+        const m = e.match(/^\[(\w+)\]/);
+        if (m) layerCounts[m[1]] = (layerCounts[m[1]] || 0) + 1;
+    });
+    const layerBadges = Object.entries(layerCounts).map(([layer, count]) => {
+        const color = layerColors[layer] || '#ef4444';
+        return `<span style="display:inline-block;padding:2px 8px;border-radius:12px;font-size:10px;font-weight:600;background:${color}20;border:1px solid ${color}50;color:${color};margin-left:6px">${layer}: ${count}</span>`;
+    }).join('');
+
     panel.innerHTML = `
         <div class="error-header">
-            <span>🔍 Validation Errors (${errors.length})</span>
+            <span>🔍 Validation Errors (${errors.length}) ${layerBadges}</span>
             <span class="error-toggle" onclick="toggleErrors()">Collapse</span>
         </div>
         <div id="error-list">${errorItems}</div>
